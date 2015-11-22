@@ -31,7 +31,7 @@ set.seed(44321)
 
 We are trying to predict which category of variable "classe" based on accelerometer data. Within the "classe" variable there are five options. The first, indicated as status "A", indicates the exercise was preformed correctly. Conversely, if the excercise was being preformed in one of four incorrect ways, the result is labeled "B" through "E".
 
-Because we are trying to classify the result into one of the five classe options, we will utilize the random forest method of machine learning instead of a regression model.
+Because we are trying to classify the result into one of the five classe categories, we will utilize the random forest method of machine learning instead of a regression model.
 
 The data has `r length(testing)` variables. For this large amount of columns we cannot reasonabily expect to fully understand and analyze each column individually, particularly with such domain specific knowledge requires as gyrospcope coordinates. Instead, we will evaluate the dataset at a high level, removing variables that are detrimental to the model. 
 
@@ -55,7 +55,7 @@ colnumbers <- which(colnames(training) %in% colnames(highNA)) ## to get the NA c
 
 Because of the consistent, extremely high number of NAs in the columns, applying any sort of standardizing to remove these NAs could easily prove misleading. Instead we will remove these columns from our modeling.
 
-Another area of problmes for the modeling is variables with significant blank values and variables with signficant "#DIV/0!" errors. We'll next identify these and remove them as well. 
+Another area of problem for the modeling is variables with significant blank values and variables with signficant "#DIV/0!" errors. We'll next identify these and remove them as well. 
 
 There are `r sum(colSums(training[ , -colnumbers] == "") > (length(training$X)/2))` columns with over 50% blanks. When we look at the plot below, the bars indicate the count of blanks in each column. From that we can see that when there is a blank, there are over 14,000 of the 19,622 rows are blank. Because there are only `r 14411/19622` non blanks, we'll remove these columns as well since any standardizing would prove unrealiable. 
 
@@ -73,27 +73,32 @@ colnumberblanks <- which(colnames(training) %in% colnames(blanks)) ## to get the
 colnumbersall <- c(colnumbers, colnumberblanks)
 ```
 
-Now as we check for "#DIV/0" values we can see that all instances of "#DIV/0" were all in the same columns as the blanks, there are `r sum(colSums(training[ , -colnumbersall] == "#DIV/0!"))` columns with "#DIV/0". At this point the data is ready to use.
+Now as we check for "#DIV/0" values we can see that all instances of "#DIV/0" were all in the same columns as the blanks, there are now `r sum(colSums(training[ , -colnumbersall] == "#DIV/0!"))` columns with "#DIV/0". At this point the data is ready to use.
+
+After removing those variables with high blanks and N/As we can look at the rest of the data to see if there are others that logically will not be good for predictions. The first seven columns, including variables like subject name and timestamp, will not be meaningful for future predictions so we will remove those columns as well. We will create a new data set where we remove all of these columns and do the same to the testing data set.
+
+```{r}
+finaltrain <- training[ , -c(1:7, colnumbersall)]
+finaltest <- testing[ , -c(1:7, colnumbersall)]
+```
 
 ## Creating the model and setting up cross validation
 
-To effectively test our model we need to separate part of the training data so we can test against that data as we only run the final model once against the final test data. We'll name our data traintrain, for the training piece of the overall training set, and traintest, for the segment we will test against for cross validation. 
+To effectively test our model we need to separate part of the training data so we can cross validate against that data as we only run the final model once against the final test data. We'll name our data traintrain, for the training piece of the overall training set, and traintest, for the segment we will test against for cross validation. 
 
 ```{r}
-inTrain <- createDataPartition(y = training$classe, p = 0.75, list = FALSE)
-traintrain <- training[inTrain, ]
-traintest <- training[-inTrain, ]
+inTrain <- createDataPartition(y = finaltrain$classe, p = 0.75, list = FALSE)
+traintrain <- finaltrain[inTrain, ]
+traintest <- finaltrain[-inTrain, ]
 ```
 
-Now we'll create a model using boosting with trees. We are using trees because their is more than one level of classification we are trying to solve, making linear regression a poor choice. We'll use the code: modfit <- train(classe ~ ., data = traintrain[ , -c(2:6, colnumbersall)], method = "gbm", verbose = "FALSE") and run the code with echo = FALSE to not display the text that comes with the model  
+Now we'll create our first model using boosting with trees, method gmb. We are using trees because their is more than one level of classification we are trying to solve, making linear regression a poor choice.  
 
-```{r Model, echo=FALSE, warning=FALSE, cache=TRUE, message=FALSE}
-
-modfit <- train(classe ~ ., data = traintrain[ , -c(2:6, colnumbersall)], method = "gbm", verbose = "FALSE")
+```{r Modelgbm, echo = TRUE, warning=FALSE, cache=TRUE, message=FALSE}
+modfit <- train(classe ~ ., data = traintrain, method = "gbm", verbose = FALSE)
 ```
 
-
-## Estimating Out of Sample Error through Cross Validation
+## Estimating Out of Sample Error through Cross Validation and Additional Models
 
 To test our results we will predict based on our model against the traintrain set and then against the traintest data.
 
@@ -102,39 +107,44 @@ predict1 <- predict(modfit, traintrain)
 confusionMatrix(traintrain$classe, predict1)
 ```
 
-From the confusion matrix we can see that we were 100% accurate against our training data, which looks good, though can make one nervous about having significantly overfitted to the sample data. To check for overfitting we'll predict against our traintest data for cross validation.
+From the confusion matrix we can see that we were 97.5% accurate against our training data. To cross validate we'll predict against our traintest data.
 
 ```{r}
 predict1 <- predict(modfit, traintest)
 confusionMatrix(traintest$classe, predict1)
 ```
 
-From the confusion matrix results we can see we had 100% accuracy in our traintest data. Accordingly, we estimate that our out of sample error will be zero. 
+Our accuracy has dropped to 96%. We have some slight overfitting. 
 
 We will then apply this model to the predict our 20 test cases. 
 
-```{r test_prediction, echo=TRUE, warning=FALSE, cache=TRUE, message=FALSE}
-results <- predict(modfit, testing)
+```{r test_prediction, echo=TRUE, warning=FALSE, cache=FALSE, message=FALSE}
+results <- predict(modfit, finaltest)
 results
 ```
 
-Based on the results our predicted values are all A. This seems unlikely, and seems that there was significant overfitting. 
+It's impossible to know if these results are accurate, however they look reasonable. 
 
-A second model choice we will consider is using random forest without boosting since boosting focuses heavilty on improved accuracy and may be causing overfitting.
+A second model choice we will consider is using random forest without boosting.
 
-```{r ModelRF, echo=FALSE, warning=FALSE, cache=TRUE, message=FALSE}
-modfitRF <- train(classe ~ ., data = traintrain[ , -c(2:6, colnumbersall)], method = "rf", verbose = "FALSE")
+```{r ModelRF, echo=TRUE, warning=FALSE, cache=TRUE, message=FALSE}
+modfitRF <- train(classe ~ ., data = traintrain, method = "rf", verbose = FALSE)
 ```
+
+To test our results we'll create confusion matrixes agaist both the traintrain and traintest sets. 
 
 ```{r}
 confusionMatrix(traintrain$classe, predict(modfitRF, traintrain))
 confusionMatrix(traintest$classe, predict(modfitRF, traintest))
 ```
 
+The accuracy in this case is 100% against the traintrain data and 99% against the traintest data. 
 
 We will again apply this model to the predict our 20 test cases. 
 
 ```{r test_predictionRF, echo=TRUE, warning=FALSE, cache=TRUE, message=FALSE}
-resultsRF <- predict(modfitRF, testing)
+resultsRF <- predict(modfitRF, finaltest)
 resultsRF
 ```
+
+Comparing the predictions for the finaltest set we get the same results from both models. We will use the second model, the random forest model without boosting, because it had higher accuracy against the traintest data. Because we received the same results from both of the models our expected accuracy on the testing data is between 96%-99% since that was the range of the accuracy from our cross validation. 
